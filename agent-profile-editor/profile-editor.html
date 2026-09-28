@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>太初 · Agent Profile Editor</title>
+  <link rel="stylesheet" href="./profile-editor.css">
+</head>
+<body>
+  <header class="pe-topbar">
+    <div class="pe-brand-row">
+      <a class="pe-back" href="./settings.html" aria-label="返回设置">←</a>
+      <div class="pe-mark">T</div>
+      <div>
+        <div class="pe-brand">Agent Profile Editor</div>
+        <div class="pe-kicker">LocalUnified 配置工作台</div>
+      </div>
+      <span class="pe-save-state" id="saveState"><i></i> 已自动保存</span>
+    </div>
+    <div class="pe-actions">
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+      <button class="pe-button ghost" id="importButton" type="button">导入 JSON</button>
+      <button class="pe-button ghost" id="presetButton" type="button">载入 WebSearch</button>
+      <button class="pe-button" id="copyButton" type="button">复制配置</button>
+      <button class="pe-button primary" id="downloadButton" type="button">导出 TOML</button>
+    </div>
+  </header>
+
+  <div class="pe-shell">
+    <aside class="pe-sidebar">
+      <div class="pe-profile-card">
+        <div class="pe-profile-icon" id="profileInitial">W</div>
+        <div class="pe-profile-meta">
+          <strong id="profileTitle">websearch</strong>
+          <span id="profileModel">DeepSeek-V4-Flash-0731</span>
+        </div>
+        <span class="pe-status-dot" title="配置状态"></span>
+      </div>
+
+      <nav class="pe-nav" aria-label="Profile 配置分区">
+        <p class="pe-nav-label">配置</p>
+        <button class="active" data-target="section-basic"><span>01</span>基础信息<b data-section-count="basic"></b></button>
+        <button data-target="section-tools"><span>02</span>工具与 Schema<b data-section-count="tools"></b></button>
+        <button data-target="section-limits"><span>03</span>执行限制<b data-section-count="limits"></b></button>
+        <button data-target="section-prompt"><span>04</span>Prompt 与 Thought<b data-section-count="prompt"></b></button>
+        <button data-target="section-skills"><span>05</span>Skills 策略<b data-section-count="skills"></b></button>
+        <button data-target="section-fork"><span>06</span>上下文 Fork<b data-section-count="fork"></b></button>
+        <button data-target="section-hooks"><span>07</span>生命周期 Hooks<b data-section-count="hooks"></b></button>
+      </nav>
+
+      <div class="pe-sidebar-note">
+        <span>运行边界</span>
+        <p><code>is_minimal</code> 与 IAC 启停开关不属于文件 Profile，本页面不生成。</p>
+      </div>
+    </aside>
+
+    <main class="pe-main">
+      <section class="pe-hero">
+        <div>
+          <div class="pe-eyebrow">PROFILE CONFIGURATION</div>
+          <h1>构建一个可控的子 Agent</h1>
+          <p>用可视化表单定义模型、能力边界、上下文继承和生命周期。右侧配置会实时生成，可直接进入代码评审。</p>
+        </div>
+        <div class="pe-hero-metrics">
+          <div><span id="metricTools">1</span><small>TOOLS</small></div>
+          <div><span id="metricHooks">2</span><small>HOOKS</small></div>
+          <div><span id="metricTurns">4</span><small>MAX TURNS</small></div>
+        </div>
+      </section>
+
+      <div class="pe-validation" id="validationBanner" role="status">
+        <div class="pe-validation-icon">✓</div>
+        <div>
+          <strong id="validationTitle">配置有效</strong>
+          <p id="validationText">所有必填参数与结构约束均已满足。</p>
+        </div>
+        <button id="validationDetails" type="button">查看详情</button>
+      </div>
+      <div class="pe-validation-list" id="validationList" hidden></div>
+
+      <form id="profileForm" novalidate>
+        <section class="pe-section" id="section-basic" data-section="basic">
+          <div class="pe-section-heading">
+            <div><span class="pe-section-no">01</span><h2>基础信息</h2></div>
+            <p>定义 Profile 身份、用途和模型选择。</p>
+          </div>
+          <div class="pe-card pe-grid two">
+            <label class="pe-field required">
+              <span>Profile 名称 <code>name</code></span>
+              <input id="fieldName" type="text" autocomplete="off" placeholder="例如 websearch">
+              <small>稳定 ID，用于运行时解析和日志标识。</small>
+            </label>
+            <label class="pe-field">
+              <span>模型 <code>model</code></span>
+              <input id="fieldModel" type="text" autocomplete="off" placeholder="留空则继承父 Agent">
+              <small>调用级 model override 的优先级高于这里。</small>
+            </label>
+            <label class="pe-field span-2">
+              <span>描述 <code>description</code></span>
+              <textarea id="fieldDescription" rows="3" placeholder="这个 Profile 在什么情况下使用"></textarea>
+              <small>元数据说明，不会自动成为子 Agent 的 System Prompt。</small>
+            </label>
+          </div>
+        </section>
+
+        <section class="pe-section" id="section-tools" data-section="tools">
+          <div class="pe-section-heading">
+            <div><span class="pe-section-no">02</span><h2>工具与 Schema</h2></div>
+            <p>决定子 Agent 可以看到、调用哪些工具。</p>
+          </div>
+          <div class="pe-card">
+            <div class="pe-grid three compact">
+              <label class="pe-field">
+                <span>过滤模式 <code>tools.mode</code></span>
+                <select id="fieldToolsMode">
+                  <option>All</option><option>AllowList</option><option>DenyList</option>
+                </select>
+              </label>
+              <label class="pe-field span-2">
+                <span>工具名称 <code>tools.names</code></span>
+                <input id="fieldToolNames" type="text" placeholder="WebSearch, Browse">
+                <small>逗号或换行分隔，支持通配符 <code>*</code>。</small>
+              </label>
+            </div>
+            <label class="pe-switch-row">
+              <span><strong>严格工具过滤</strong><small>继承自 DM 的工具也必须满足白名单。</small></span>
+              <input id="fieldToolsStrict" type="checkbox"><i></i>
+            </label>
+          </div>
+
+          <div class="pe-subheading">
+            <div><h3>Schema 覆盖</h3><p>只改变子 Agent 看到的工具描述与参数结构。</p></div>
+            <button class="pe-button small" id="addSchemaButton" type="button">＋ 添加工具 Schema</button>
+          </div>
+          <div id="schemaList" class="pe-stack"></div>
+        </section>
+
+        <section class="pe-section" id="section-limits" data-section="limits">
+          <div class="pe-section-heading">
+            <div><span class="pe-section-no">03</span><h2>执行限制</h2></div>
+            <p>控制成本、超时、递归和结束策略。</p>
+          </div>
+          <div class="pe-card pe-grid three">
+            <label class="pe-field">
+              <span>超时秒数 <code>timeout_secs</code></span>
+              <input id="fieldTimeout" type="number" min="0" step="1" placeholder="不限">
+            </label>
+            <label class="pe-field">
+              <span>最大轮数 <code>max_turns</code></span>
+              <input id="fieldMaxTurns" type="number" min="0" step="1" placeholder="不限">
+            </label>
+            <label class="pe-field">
+              <span>最大输出字符 <code>max_output_chars</code></span>
+              <input id="fieldMaxOutput" type="number" min="0" step="1" placeholder="不限">
+            </label>
+            <label class="pe-field">
+              <span>剩余搜索轮数 <code>remaining_search_turns</code></span>
+              <input id="fieldRemainingTurns" type="number" min="0" step="1" placeholder="不替换占位符">
+            </label>
+            <label class="pe-field">
+              <span>达到上限时 <code>on_max_turns</code></span>
+              <select id="fieldOnMaxTurns"><option value="abort">abort</option><option value="fuse_stop">fuse_stop</option></select>
+            </label>
+            <div class="pe-field pe-placeholder-help">
+              <span>Prompt 占位符</span>
+              <div><code>{remaining_search_turns}</code><code>{max_search_turns}</code></div>
+            </div>
+            <label class="pe-field span-3">
+              <span>上限提示 <code>on_max_turns_message</code></span>
+              <input id="fieldOnMaxMessage" type="text" placeholder="留空使用运行时默认话术">
+            </label>
+          </div>
+          <div class="pe-card pe-toggle-grid">
+            <label class="pe-switch-row">
+              <span><strong>允许创建子 Agent</strong><small><code>allow_spawn_children</code></small></span>
+              <input id="fieldAllowSpawn" type="checkbox"><i></i>
+            </label>
+            <label class="pe-switch-row">
+              <span><strong>活动时延长截止时间</strong><small><code>extend_deadline_on_activity</code></small></span>
+              <input id="fieldExtendDeadline" type="checkbox"><i></i>
+            </label>
+            <label class="pe-switch-row">
+              <span><strong>满轮后立即 Join</strong><small><code>immediate_join_on_max_turns</code></small></span>
+              <input id="fieldImmediateJoin" type="checkbox"><i></i>
+            </label>
+          </div>
+        </section>
+
+        <section class="pe-section" id="section-prompt" data-section="prompt">
+          <div class="pe-section-heading">
+            <div><span class="pe-section-no">04</span><h2>Prompt 与 Thought</h2></div>
+            <p>组装子 Agent 指令、父级上下文与模型前缀。</p>
+          </div>
+          <div class="pe-card pe-grid two">
+            <label class="pe-field">
+              <span>组装模式 <code>prompt.mode</code></span>
+              <select id="fieldPromptMode"><option value="inherit">inherit</option><option value="replace">replace</option><option value="compose">compose</option></select>
+            </label>
+            <label class="pe-field">
+              <span>继承上下文文件 <code>context_files</code></span>
+              <input id="fieldContextFiles" type="text" placeholder="USER.md, MEMORY.md">
+            </label>
+            <label class="pe-field span-2">
+              <span>System Prompt <code>system_prompt</code></span>
+              <textarea id="fieldSystemPrompt" class="pe-code-input" rows="12" spellcheck="false" placeholder="定义子 Agent 的职责、输出契约和决策规则"></textarea>
+            </label>
+            <label class="pe-field span-2">
+              <span>运行时提醒 <code>initial_reminder</code></span>
+              <textarea id="fieldInitialReminder" class="pe-code-input" rows="5" spellcheck="false" placeholder="支持 {datetime}、{device_info}、{timezone}"></textarea>
+            </label>
+          </div>
+          <div class="pe-card pe-thought-card">
+            <label class="pe-switch-row">
+              <span><strong>启用 Thought 前缀</strong><small>仅注入模型请求，不写回会话 Context。</small></span>
+              <input id="fieldThoughtEnable" type="checkbox"><i></i>
+            </label>
+            <label class="pe-field">
+              <span>前缀内容 <code>thought.prefix_content</code></span>
+              <input id="fieldThoughtPrefix" class="mono" type="text" placeholder="<thought>">
+            </label>
+          </div>
+        </section>
+
+        <section class="pe-section" id="section-skills" data-section="skills">
+          <div class="pe-section-heading">
+            <div><span class="pe-section-no">05</span><h2>Skills 策略</h2></div>
+            <p>过滤传给子 Agent 的可用技能。</p>
+          </div>
+          <div class="pe-card pe-grid two">
+            <label class="pe-field">
+              <span>过滤模式 <code>skills.mode</code></span>
+              <select id="fieldSkillsMode"><option>All</option><option>AllowList</option><option>DenyList</option></select>
+            </label>
+            <label class="pe-field">
+              <span>技能名称 <code>skills.names</code></span>
+              <input id="fieldSkillNames" type="text" placeholder="skill-name 或 *">
+              <small><code>DenyList + ["*"]</code> 会关闭全部技能及工作区扫描。</small>
+            </label>
+          </div>
+        </section>
+
+        <section class="pe-section" id="section-fork" data-section="fork">
+          <div class="pe-section-heading">
+            <div><span class="pe-section-no">06</span><h2>上下文 Fork</h2></div>
+            <p>控制父会话历史如何复制到子 Agent。</p>
+          </div>
+          <div class="pe-card">
+            <label class="pe-switch-row prominent">
+              <span><strong>继承父会话历史</strong><small><code>include_parent_history</code> 关闭后，子 Agent 从空消息列表开始。</small></span>
+              <input id="fieldIncludeHistory" type="checkbox"><i></i>
+            </label>
+            <div class="pe-grid two compact top-rule">
+              <label class="pe-field">
+                <span>历史轮次策略 <code>prior_turns</code></span>
+                <input id="fieldPriorTurns" class="mono" type="text" value="ua">
+                <small><code>ua</code>：仅保留 User 与纯文本 Assistant。</small>
+              </label>
+              <label class="pe-field">
+                <span>当前轮次策略 <code>current_turn</code></span>
+                <input id="fieldCurrentTurn" class="mono" type="text" value="uat">
+                <small><code>uat</code>：保留 User、Assistant 与完整工具调用对。</small>
+              </label>
+            </div>
+            <label class="pe-switch-row top-rule">
+              <span><strong>移除触发工具</strong><small><code>exclude_triggering_tool</code></small></span>
+              <input id="fieldExcludeTrigger" type="checkbox"><i></i>
+            </label>
+            <label class="pe-field top-rule">
+              <span>越界工具结果提示 <code>out_of_scope_tool_instruction</code></span>
+              <textarea id="fieldOutOfScope" rows="4" placeholder="追加到子 Agent 不可调用工具的 ToolResult；支持 {tool_name}"></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="pe-section" id="section-hooks" data-section="hooks">
+          <div class="pe-section-heading">
+            <div><span class="pe-section-no">07</span><h2>生命周期 Hooks</h2></div>
+            <p>在工具与模型响应的关键节点执行注册过的 Rust Hook。</p>
+          </div>
+          <div class="pe-card">
+            <label class="pe-field">
+              <span>累积器标识 <code>hooks.accumulator_key</code></span>
+              <input id="fieldAccumulatorKey" type="text" placeholder="例如 websearch_rounds">
+              <small>当前实现属于预留字段；Hook 行为仍由已注册的 <code>hook_id</code> 决定。</small>
+            </label>
+          </div>
+          <div id="hookGroups" class="pe-hook-groups"></div>
+        </section>
+      </form>
+    </main>
+
+    <aside class="pe-preview">
+      <div class="pe-preview-head">
+        <div>
+          <span>LIVE OUTPUT</span>
+          <strong id="previewFileName">websearch.toml</strong>
+        </div>
+        <div class="pe-segmented" role="tablist">
+          <button class="active" id="tomlTab" type="button" role="tab">TOML</button>
+          <button id="jsonTab" type="button" role="tab">JSON</button>
+        </div>
+      </div>
+      <div class="pe-code-toolbar">
+        <span id="previewLines">0 lines</span>
+        <button id="copyPreviewButton" type="button">复制</button>
+      </div>
+      <pre class="pe-code" id="previewCode" tabindex="0"></pre>
+      <div class="pe-preview-foot">
+        <span><i class="ok"></i><b id="previewStatus">VALID</b></span>
+        <span id="previewSize">0 B</span>
+      </div>
+    </aside>
+  </div>
+
+  <div class="pe-toast" id="toast" role="status"></div>
+
+  <template id="schemaTemplate">
+    <article class="pe-card pe-schema-card" data-schema-card>
+      <div class="pe-card-titlebar">
+        <div><span class="pe-schema-glyph">{ }</span><strong data-schema-title>Tool Schema</strong></div>
+        <button class="pe-icon-button danger" type="button" data-remove-schema aria-label="删除 Schema">×</button>
+      </div>
+      <div class="pe-grid two">
+        <label class="pe-field">
+          <span>工具名称</span>
+          <input type="text" data-schema-name placeholder="WebSearch">
+        </label>
+        <label class="pe-field">
+          <span>工具描述</span>
+          <textarea rows="3" data-schema-description></textarea>
+        </label>
+        <label class="pe-field span-2">
+          <span>Parameters · JSON Schema</span>
+          <textarea rows="12" class="pe-code-input" data-schema-parameters spellcheck="false"></textarea>
+        </label>
+      </div>
+    </article>
+  </template>
+
+  <template id="hookRowTemplate">
+    <div class="pe-hook-row" data-hook-row>
+      <label class="pe-field"><span>Matcher</span><input data-hook-matcher type="text" placeholder="WebSearch 或 STOP"></label>
+      <label class="pe-field"><span>匹配方式</span><select data-hook-match-mode><option value="exact">exact</option><option value="contains">contains</option></select></label>
+      <label class="pe-field wide"><span>Hook ID</span><input data-hook-id type="text" list="registeredHooks" placeholder="registered_hook_id"></label>
+      <label class="pe-field"><span>命中后</span><select data-hook-on-match><option value="continue">continue</option><option value="end">end</option></select></label>
+      <button class="pe-icon-button danger" type="button" data-remove-hook aria-label="删除 Hook">×</button>
+    </div>
+  </template>
+
+  <datalist id="registeredHooks">
+    <option value="websearch_accumulate_round"></option>
+    <option value="websearch_join_accumulator"></option>
+  </datalist>
+
+  <script src="./profile-editor-core.js"></script>
+  <script src="./profile-editor.js"></script>
+</body>
+</html>
