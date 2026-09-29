@@ -5,11 +5,13 @@
   if (!core) throw new Error('ProfileEditorCore is required');
 
   const STORAGE_KEY = 'taichu_profile_editor_draft_v1';
+  const PLATFORM_STORAGE_KEY = 'taichu_profile_editor_platform_v1';
   const $ = (id) => document.getElementById(id);
   const form = $('profileForm');
   const schemaList = $('schemaList');
-  const hookGroups = $('hookGroups');
+  const promptFileList = $('promptFileList');
   let profile = loadDraft();
+  let platform = loadPlatformDraft();
   let previewFormat = 'toml';
   let saveTimer = null;
   let toastTimer = null;
@@ -22,6 +24,45 @@
       console.warn('profile editor draft ignored', error);
     }
     return core.createWebSearchProfile();
+  }
+
+  function loadPlatformDraft() {
+    const defaults = {
+      scope: 'system',
+      owner_skill: '',
+      consumer_skills: [],
+      version: '1.0.0',
+      status: 'published',
+      lifecycle: {
+        max_active_turns: null,
+        invalidate_on_other_skill_load: true,
+      },
+    };
+    try {
+      const raw = localStorage.getItem(PLATFORM_STORAGE_KEY);
+      if (!raw) return defaults;
+      const saved = JSON.parse(raw);
+      return {
+        scope: saved.scope === 'skill' ? 'skill' : 'system',
+        owner_skill: String(saved.owner_skill || ''),
+        consumer_skills: Array.isArray(saved.consumer_skills)
+          ? [...new Set(saved.consumer_skills.map(String).map((item) => item.trim()).filter(Boolean))]
+          : [],
+        version: String(saved.version || defaults.version),
+        status: ['draft', 'published', 'disabled'].includes(saved.status)
+          ? saved.status
+          : defaults.status,
+        lifecycle: {
+          max_active_turns: saved.lifecycle?.max_active_turns == null
+            ? null
+            : Number(saved.lifecycle.max_active_turns),
+          invalidate_on_other_skill_load: saved.lifecycle?.invalidate_on_other_skill_load !== false,
+        },
+      };
+    } catch (error) {
+      console.warn('profile platform metadata ignored', error);
+      return defaults;
+    }
   }
 
   function splitList(value) {
@@ -43,6 +84,22 @@
     return Number.isInteger(number) ? number : number;
   }
 
+  function formatSchema(value) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return JSON.stringify(value, null, 2);
+    }
+    return String(value ?? '');
+  }
+
+  function parseSchemaField(id) {
+    const value = $(id).value.trim();
+    try {
+      return JSON.parse(value);
+    } catch (_) {
+      return value;
+    }
+  }
+
   function setValue(id, value) {
     const element = $(id);
     if (element) element.value = value == null ? '' : String(value);
@@ -53,7 +110,42 @@
     if (element) element.checked = Boolean(value);
   }
 
+  function skillSnippet() {
+    const profileId = profile.name.trim() || 'profile-name';
+    return [
+      '### Step 3：调用子 Agent',
+      '',
+      '调用 `run_subagent`，设置：',
+      `\`subagent_profile_id: ${profileId}\``,
+      '',
+      '将上一步得到的文件和用户要求传给 Subagent。',
+      '等待 Subagent 完成后，继续执行下一步。',
+    ].join('\n');
+  }
+
+  function writePlatformForm() {
+    setChecked('fieldScopeSystem', platform.scope === 'system');
+    setChecked('fieldScopeSkill', platform.scope === 'skill');
+    setValue('fieldOwnerSkill', platform.owner_skill);
+    setValue('fieldConsumerSkills', platform.consumer_skills.join(', '));
+    setValue('fieldVersion', platform.version);
+    setValue('fieldPublishStatus', platform.status);
+    setValue('fieldMaxActiveTurns', platform.lifecycle.max_active_turns);
+    setChecked('fieldInvalidateOnOtherSkillLoad', platform.lifecycle.invalidate_on_other_skill_load);
+  }
+
+  function readPlatformForm() {
+    platform.scope = $('fieldScopeSkill').checked ? 'skill' : 'system';
+    platform.owner_skill = $('fieldOwnerSkill').value.trim();
+    platform.consumer_skills = splitList($('fieldConsumerSkills').value);
+    platform.version = $('fieldVersion').value.trim();
+    platform.status = $('fieldPublishStatus').value;
+    platform.lifecycle.max_active_turns = nullableInteger($('fieldMaxActiveTurns').value);
+    platform.lifecycle.invalidate_on_other_skill_load = $('fieldInvalidateOnOtherSkillLoad').checked;
+  }
+
   function writeStaticForm() {
+    writePlatformForm();
     setValue('fieldName', profile.name);
     setValue('fieldModel', profile.model);
     setValue('fieldDescription', profile.description);
@@ -63,29 +155,24 @@
     setValue('fieldTimeout', profile.limits.timeout_secs);
     setValue('fieldMaxTurns', profile.limits.max_turns);
     setValue('fieldMaxOutput', profile.limits.max_output_chars);
-    setValue('fieldRemainingTurns', profile.limits.remaining_search_turns);
     setValue('fieldOnMaxTurns', profile.limits.on_max_turns);
     setValue('fieldOnMaxMessage', profile.limits.on_max_turns_message);
-    setChecked('fieldAllowSpawn', profile.limits.allow_spawn_children);
-    setChecked('fieldExtendDeadline', profile.limits.extend_deadline_on_activity);
-    setChecked('fieldImmediateJoin', profile.limits.immediate_join_on_max_turns);
-    setValue('fieldPromptMode', profile.prompt.mode);
-    setValue('fieldContextFiles', profile.prompt.context_files.join(', '));
-    setValue('fieldSystemPrompt', profile.system_prompt);
-    setValue('fieldInitialReminder', profile.initial_reminder);
-    setChecked('fieldThoughtEnable', profile.thought.enable);
-    setValue('fieldThoughtPrefix', profile.thought.prefix_content);
-    setValue('fieldSkillsMode', profile.skills.mode);
-    setValue('fieldSkillNames', profile.skills.names.join(', '));
+    setValue('fieldSystemPromptMode', profile.prompt.system.mode);
+    setValue('fieldSystemPromptContent', profile.prompt.system.content);
+    setValue('fieldSkillAllow', profile.skills.allow.join(', '));
+    setValue('fieldSkillDeny', profile.skills.deny.join(', '));
+    setValue('fieldSkillPreload', profile.skills.preload.join(', '));
     setChecked('fieldIncludeHistory', profile.fork.include_parent_history);
+    setValue('fieldMaxPriorTurns', profile.fork.max_prior_turns);
+    setValue('fieldMaxHistoryChars', profile.fork.max_history_chars);
     setValue('fieldPriorTurns', profile.fork.prior_turns);
-    setValue('fieldCurrentTurn', profile.fork.current_turn);
-    setChecked('fieldExcludeTrigger', profile.fork.exclude_triggering_tool);
     setValue('fieldOutOfScope', profile.fork.out_of_scope_tool_instruction);
-    setValue('fieldAccumulatorKey', profile.hooks.accumulator_key);
+    setValue('fieldInputSchema', formatSchema(profile.input_schema));
+    setValue('fieldOutputSchema', formatSchema(profile.output_schema));
   }
 
   function readStaticForm() {
+    readPlatformForm();
     profile.name = $('fieldName').value;
     profile.model = nullableText($('fieldModel').value);
     profile.description = $('fieldDescription').value;
@@ -95,26 +182,20 @@
     profile.limits.timeout_secs = nullableInteger($('fieldTimeout').value);
     profile.limits.max_turns = nullableInteger($('fieldMaxTurns').value);
     profile.limits.max_output_chars = nullableInteger($('fieldMaxOutput').value);
-    profile.limits.remaining_search_turns = nullableInteger($('fieldRemainingTurns').value);
     profile.limits.on_max_turns = $('fieldOnMaxTurns').value;
     profile.limits.on_max_turns_message = nullableText($('fieldOnMaxMessage').value);
-    profile.limits.allow_spawn_children = $('fieldAllowSpawn').checked;
-    profile.limits.extend_deadline_on_activity = $('fieldExtendDeadline').checked;
-    profile.limits.immediate_join_on_max_turns = $('fieldImmediateJoin').checked;
-    profile.prompt.mode = $('fieldPromptMode').value;
-    profile.prompt.context_files = splitList($('fieldContextFiles').value);
-    profile.system_prompt = nullableText($('fieldSystemPrompt').value);
-    profile.initial_reminder = nullableText($('fieldInitialReminder').value);
-    profile.thought.enable = $('fieldThoughtEnable').checked;
-    profile.thought.prefix_content = $('fieldThoughtPrefix').value;
-    profile.skills.mode = $('fieldSkillsMode').value;
-    profile.skills.names = splitList($('fieldSkillNames').value);
+    profile.prompt.system.mode = $('fieldSystemPromptMode').value;
+    profile.prompt.system.content = $('fieldSystemPromptContent').value;
+    profile.skills.allow = splitList($('fieldSkillAllow').value);
+    profile.skills.deny = splitList($('fieldSkillDeny').value);
+    profile.skills.preload = splitList($('fieldSkillPreload').value);
     profile.fork.include_parent_history = $('fieldIncludeHistory').checked;
+    profile.fork.max_prior_turns = nullableInteger($('fieldMaxPriorTurns').value);
+    profile.fork.max_history_chars = nullableInteger($('fieldMaxHistoryChars').value);
     profile.fork.prior_turns = $('fieldPriorTurns').value;
-    profile.fork.current_turn = $('fieldCurrentTurn').value;
-    profile.fork.exclude_triggering_tool = $('fieldExcludeTrigger').checked;
     profile.fork.out_of_scope_tool_instruction = $('fieldOutOfScope').value;
-    profile.hooks.accumulator_key = nullableText($('fieldAccumulatorKey').value);
+    profile.input_schema = parseSchemaField('fieldInputSchema');
+    profile.output_schema = parseSchemaField('fieldOutputSchema');
   }
 
   function renderSchemas() {
@@ -144,6 +225,77 @@
     });
   }
 
+  const promptFileDescriptions = {
+    'SOUL.md': '身份、角色气质与稳定表达风格。',
+    'AGENTS.md': '代理工作规则、决策边界与执行约束。',
+    'TOOLS.md': '工具选择、参数约束与调用规则。',
+    'USER.md': '用户身份、偏好和长期稳定信息。',
+    'MEMORY.md': '跨会话保留的精炼记忆与经验。',
+  };
+
+  function renderPromptFiles() {
+    promptFileList.replaceChildren();
+    core.PROMPT_FILES.forEach((fileName) => {
+      const slot = profile.prompt.files[fileName];
+      const card = document.createElement('article');
+      card.className = 'pe-prompt-file-card';
+      card.dataset.promptFile = fileName;
+      card.innerHTML = `
+        <div class="pe-prompt-file-head">
+          <div><code>${fileName}</code><p>${promptFileDescriptions[fileName]}</p></div>
+          <label><span>处理方式</span><select data-prompt-file-mode>
+            <option value="inherit">沿用父 Prompt</option>
+            <option value="empty">置空</option>
+            <option value="custom">自定义</option>
+          </select></label>
+        </div>
+        <div class="pe-prompt-mode-note" data-prompt-mode-note></div>
+        <label class="pe-field pe-prompt-content" data-prompt-custom-content>
+          <span>自定义内容 <code>prompt.files.${fileName}.content</code></span>
+          <textarea class="pe-code-input" rows="8" spellcheck="false" data-prompt-file-content placeholder="填写完整的 ${fileName} 内容"></textarea>
+        </label>`;
+      card.querySelector('[data-prompt-file-mode]').value = slot.mode;
+      card.querySelector('[data-prompt-file-content]').value = slot.content;
+      promptFileList.appendChild(card);
+    });
+    updatePromptEditorState();
+  }
+
+  function syncPromptFilesFromDom() {
+    promptFileList.querySelectorAll('[data-prompt-file]').forEach((card) => {
+      const fileName = card.dataset.promptFile;
+      profile.prompt.files[fileName] = {
+        mode: card.querySelector('[data-prompt-file-mode]').value,
+        content: card.querySelector('[data-prompt-file-content]').value,
+      };
+    });
+  }
+
+  function updatePromptEditorState() {
+    const systemMode = $('fieldSystemPromptMode').value;
+    $('systemPromptContentField').hidden = systemMode !== 'custom';
+    promptFileList.querySelectorAll('[data-prompt-file]').forEach((card) => {
+      const mode = card.querySelector('[data-prompt-file-mode]').value;
+      const customContent = card.querySelector('[data-prompt-custom-content]');
+      const note = card.querySelector('[data-prompt-mode-note]');
+      customContent.hidden = mode !== 'custom';
+      note.hidden = mode === 'custom';
+      note.textContent = mode === 'empty'
+        ? '此槽位不会注入任何内容。'
+        : '运行时沿用父 Agent 中的对应 Markdown 内容。';
+      card.dataset.mode = mode;
+    });
+  }
+
+  function updateForkEditorState() {
+    const enabled = $('fieldIncludeHistory').checked;
+    const options = $('forkOptions');
+    options.classList.toggle('is-disabled', !enabled);
+    options.querySelectorAll('input, select, textarea').forEach((control) => {
+      control.disabled = !enabled;
+    });
+  }
+
   function syncSchemasFromDom() {
     const schemas = {};
     schemaList.querySelectorAll('[data-schema-card]').forEach((card, index) => {
@@ -165,73 +317,51 @@
     profile.tools.schema = schemas;
   }
 
-  const phaseDescriptions = {
-    PreToolUse: '工具执行之前',
-    PostToolUse: '工具返回结果之后',
-    PostResponse: '模型生成响应之后',
-  };
-
-  function renderHooks() {
-    hookGroups.replaceChildren();
-    core.HOOK_PHASES.forEach((phase) => {
-      const group = document.createElement('section');
-      group.className = 'pe-hook-group';
-      group.dataset.hookPhase = phase;
-      group.innerHTML = `
-        <div class="pe-hook-group-head">
-          <div><span class="pe-hook-phase">${phase}</span><small>${phaseDescriptions[phase]}</small></div>
-          <button class="pe-button small" type="button" data-add-hook="${phase}">＋ 添加 Hook</button>
-        </div>
-        <div class="pe-hook-list" data-hook-list></div>`;
-      const list = group.querySelector('[data-hook-list]');
-      const entries = profile.hooks[phase];
-      if (!entries.length) {
-        const empty = document.createElement('div');
-        empty.className = 'pe-hook-empty';
-        empty.textContent = '此阶段没有 Hook';
-        list.appendChild(empty);
-      } else {
-        entries.forEach((entry) => {
-          const fragment = $('hookRowTemplate').content.cloneNode(true);
-          fragment.querySelector('[data-hook-matcher]').value = entry.matcher;
-          fragment.querySelector('[data-hook-match-mode]').value = entry.match_mode;
-          fragment.querySelector('[data-hook-id]').value = entry.hook_id;
-          fragment.querySelector('[data-hook-on-match]').value = entry.on_match;
-          list.appendChild(fragment);
-        });
-      }
-      hookGroups.appendChild(group);
-    });
-  }
-
-  function syncHooksFromDom() {
-    core.HOOK_PHASES.forEach((phase) => {
-      const group = hookGroups.querySelector(`[data-hook-phase="${phase}"]`);
-      if (!group) return;
-      profile.hooks[phase] = [...group.querySelectorAll('[data-hook-row]')].map((row) => ({
-        matcher: row.querySelector('[data-hook-matcher]').value,
-        match_mode: row.querySelector('[data-hook-match-mode]').value,
-        hook_id: row.querySelector('[data-hook-id]').value,
-        on_match: row.querySelector('[data-hook-on-match]').value,
-      }));
-    });
-  }
-
   function collectForm() {
     readStaticForm();
+    syncPromptFilesFromDom();
     syncSchemasFromDom();
-    syncHooksFromDom();
   }
 
   function sectionForPath(path) {
     if (/^(name|description|model)/.test(path)) return 'basic';
     if (/^tools/.test(path)) return 'tools';
     if (/^limits/.test(path)) return 'limits';
-    if (/^(prompt|thought|system_prompt|initial_reminder)/.test(path)) return 'prompt';
+    if (/^prompt/.test(path)) return 'prompt';
     if (/^skills/.test(path)) return 'skills';
     if (/^fork/.test(path)) return 'fork';
-    if (/^hooks/.test(path)) return 'hooks';
+    if (/^(input_schema|output_schema)/.test(path)) return 'io';
     return 'basic';
+  }
+
+  function validatePlatform() {
+    const errors = [];
+    const warnings = [];
+    if (platform.scope === 'skill' && !platform.owner_skill) {
+      errors.push({ path: 'platform.owner_skill', message: 'Skill 级 Profile 必须填写维护 Skill。' });
+    }
+    if (platform.scope === 'skill' && platform.consumer_skills.length === 0) {
+      errors.push({ path: 'platform.consumer_skills', message: 'Skill 级 Profile 至少需要关联一个可使用的 Skill。' });
+    }
+    if (platform.scope === 'skill') {
+      const maxActiveTurns = platform.lifecycle.max_active_turns;
+      if (maxActiveTurns !== null && (!Number.isInteger(maxActiveTurns) || maxActiveTurns < 1)) {
+        errors.push({
+          path: 'platform.lifecycle.max_active_turns',
+          message: 'Skill Profile 最大生效轮数必须是正整数或留空。',
+        });
+      }
+    }
+    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(platform.version)) {
+      errors.push({ path: 'platform.version', message: '版本号应使用语义化版本，例如 1.0.0。' });
+    }
+    if (platform.status === 'draft') {
+      warnings.push({ path: 'platform.status', message: '草稿 Profile 尚未形成可供生产使用的稳定版本。' });
+    }
+    if (platform.status === 'disabled') {
+      warnings.push({ path: 'platform.status', message: '已禁用的 Profile 不应继续被 Skill 引用。' });
+    }
+    return { errors, warnings };
   }
 
   function updateValidation(result) {
@@ -280,10 +410,52 @@
     });
 
     $('fieldName').classList.toggle('invalid', result.errors.some((item) => item.path === 'name'));
-    $('fieldRemainingTurns').classList.toggle(
+    $('fieldOwnerSkill').classList.toggle(
       'invalid',
-      result.errors.some((item) => item.path === 'limits.remaining_search_turns'),
+      result.errors.some((item) => item.path === 'platform.owner_skill'),
     );
+    $('fieldVersion').classList.toggle(
+      'invalid',
+      result.errors.some((item) => item.path === 'platform.version'),
+    );
+    $('fieldSystemPromptContent').classList.toggle(
+      'invalid',
+      result.errors.some((item) => item.path === 'prompt.system.content'),
+    );
+    promptFileList.querySelectorAll('[data-prompt-file]').forEach((card) => {
+      const path = `prompt.files.${card.dataset.promptFile}.content`;
+      card.querySelector('[data-prompt-file-content]').classList.toggle(
+        'invalid',
+        result.errors.some((item) => item.path === path),
+      );
+    });
+    $('fieldConsumerSkills').classList.toggle(
+      'invalid',
+      result.errors.some((item) => item.path === 'platform.consumer_skills'),
+    );
+    $('fieldMaxActiveTurns').classList.toggle(
+      'invalid',
+      result.errors.some((item) => item.path === 'platform.lifecycle.max_active_turns'),
+    );
+    $('fieldInputSchema').classList.toggle(
+      'invalid',
+      result.errors.some((item) => item.path.startsWith('input_schema')),
+    );
+    $('fieldOutputSchema').classList.toggle(
+      'invalid',
+      result.errors.some((item) => item.path.startsWith('output_schema')),
+    );
+    ['fieldMaxPriorTurns', 'fieldMaxHistoryChars', 'fieldPriorTurns'].forEach((id) => {
+      const pathById = {
+        fieldMaxPriorTurns: 'fork.max_prior_turns',
+        fieldMaxHistoryChars: 'fork.max_history_chars',
+        fieldPriorTurns: 'fork.prior_turns',
+      };
+      $(id).classList.toggle(
+        'invalid',
+        result.errors.some((item) => item.path === pathById[id]),
+      );
+    });
     document.querySelector('.pe-status-dot').classList.toggle('invalid', !result.valid);
   }
 
@@ -317,8 +489,25 @@
     $('profileInitial').textContent = cleanName.slice(0, 1).toUpperCase() || 'P';
     $('profileModel').textContent = model;
     $('metricTools').textContent = profile.tools.names.includes('*') ? 'ALL' : String(profile.tools.names.length);
-    $('metricHooks').textContent = String(core.HOOK_PHASES.reduce((sum, phase) => sum + profile.hooks[phase].length, 0));
+    $('metricPreload').textContent = String(profile.skills.preload.length);
     $('metricTurns').textContent = profile.limits.max_turns == null ? '∞' : String(profile.limits.max_turns);
+
+    const isSkill = platform.scope === 'skill';
+    const scopeLabel = isSkill ? 'Skill 级' : '系统级';
+    const scopeDescription = isSkill
+      ? '由一个 Skill 负责维护，可授权给一个或多个 Skill，并在这些 Skill 的多个 Step 中复用。'
+      : '由平台统一维护，可供多个 Skill 和多个 Step 复用；Profile 独立发布和演进。';
+    $('ownerSkillField').hidden = !isSkill;
+    $('consumerSkillsField').hidden = !isSkill;
+    $('skillLifecycleCard').hidden = !isSkill;
+    $('heroScopeBadge').textContent = scopeLabel;
+    $('heroScopeBadge').classList.toggle('system', !isSkill);
+    $('heroScopeBadge').classList.toggle('skill', isSkill);
+    $('heroScopeDescription').textContent = scopeDescription;
+    $('skillSnippet').textContent = skillSnippet();
+    document.querySelectorAll('[data-profile-scope]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.profileScope === platform.scope);
+    });
   }
 
   function safeFileName(name) {
@@ -332,6 +521,7 @@
     saveTimer = setTimeout(() => {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+        localStorage.setItem(PLATFORM_STORAGE_KEY, JSON.stringify(platform));
         $('saveState').classList.remove('saving');
         $('saveState').lastChild.textContent = ' 已自动保存';
       } catch (error) {
@@ -341,8 +531,16 @@
   }
 
   function refresh(options = {}) {
-    const result = core.validateProfile(profile);
+    const runtimeResult = core.validateProfile(profile);
+    const platformResult = validatePlatform();
+    const result = {
+      errors: [...runtimeResult.errors, ...platformResult.errors],
+      warnings: [...runtimeResult.warnings, ...platformResult.warnings],
+    };
+    result.valid = result.errors.length === 0;
     updateSummary();
+    updatePromptEditorState();
+    updateForkEditorState();
     updateValidation(result);
     updatePreview(result);
     if (options.save !== false) scheduleSave();
@@ -351,8 +549,8 @@
   function renderAll() {
     profile = core.normalizeProfile(profile);
     writeStaticForm();
+    renderPromptFiles();
     renderSchemas();
-    renderHooks();
     refresh({ save: false });
   }
 
@@ -386,21 +584,7 @@
     input?.select();
   }
 
-  function addHook(phase) {
-    collectForm();
-    profile.hooks[phase].push({
-      matcher: phase === 'PostResponse' ? 'STOP' : '*',
-      match_mode: 'exact',
-      hook_id: '',
-      on_match: phase === 'PostResponse' ? 'end' : 'continue',
-    });
-    renderHooks();
-    refresh();
-    const group = hookGroups.querySelector(`[data-hook-phase="${phase}"]`);
-    group?.querySelector('[data-hook-row]:last-child [data-hook-id]')?.focus();
-  }
-
-  async function copyText(text) {
+  async function copyText(text, message = '配置已复制到剪贴板') {
     try {
       await navigator.clipboard.writeText(text);
     } catch (_) {
@@ -413,7 +597,7 @@
       document.execCommand('copy');
       textarea.remove();
     }
-    showToast('配置已复制到剪贴板');
+    showToast(message);
   }
 
   function downloadToml() {
@@ -446,6 +630,17 @@
   function loadPreset() {
     if (!window.confirm('载入 WebSearch 示例会覆盖当前草稿，是否继续？')) return;
     profile = core.createWebSearchProfile();
+    platform = {
+      scope: 'system',
+      owner_skill: '',
+      consumer_skills: [],
+      version: '1.0.0',
+      status: 'published',
+      lifecycle: {
+        max_active_turns: null,
+        invalidate_on_other_skill_load: true,
+      },
+    };
     renderAll();
     scheduleSave();
     showToast('已载入 WebSearch Profile');
@@ -468,6 +663,15 @@
 
   form.addEventListener('input', onFormChange);
   form.addEventListener('change', onFormChange);
+  document.querySelectorAll('[data-profile-scope]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const target = button.dataset.profileScope === 'skill' ? 'fieldScopeSkill' : 'fieldScopeSystem';
+      $(target).checked = true;
+      collectForm();
+      refresh();
+      $('section-basic').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
   $('addSchemaButton').addEventListener('click', addSchema);
   schemaList.addEventListener('click', (event) => {
     const remove = event.target.closest('[data-remove-schema]');
@@ -477,22 +681,6 @@
     if (!schemaList.querySelector('[data-schema-card]')) renderSchemas();
     refresh();
   });
-  hookGroups.addEventListener('click', (event) => {
-    const add = event.target.closest('[data-add-hook]');
-    if (add) {
-      addHook(add.dataset.addHook);
-      return;
-    }
-    const remove = event.target.closest('[data-remove-hook]');
-    if (!remove) return;
-    const phase = remove.closest('[data-hook-phase]').dataset.hookPhase;
-    remove.closest('[data-hook-row]').remove();
-    syncHooksFromDom();
-    renderHooks();
-    refresh();
-    showToast(`${phase} Hook 已删除`);
-  });
-
   document.querySelectorAll('.pe-nav button[data-target]').forEach((button) => {
     button.addEventListener('click', () => {
       $(button.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -518,6 +706,7 @@
   $('jsonTab').addEventListener('click', () => { previewFormat = 'json'; refresh({ save: false }); });
   $('copyButton').addEventListener('click', () => copyText(currentOutput()));
   $('copyPreviewButton').addEventListener('click', () => copyText(currentOutput()));
+  $('copySnippetButton').addEventListener('click', () => copyText(skillSnippet(), 'SKILL.md 示例已复制'));
   $('downloadButton').addEventListener('click', downloadToml);
   $('presetButton').addEventListener('click', loadPreset);
   $('importButton').addEventListener('click', () => $('importFile').click());
