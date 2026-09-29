@@ -8,7 +8,6 @@
   const PLATFORM_STORAGE_KEY = 'taichu_profile_editor_platform_v1';
   const $ = (id) => document.getElementById(id);
   const form = $('profileForm');
-  const schemaList = $('schemaList');
   const promptFileList = $('promptFileList');
   let profile = loadDraft();
   let platform = loadPlatformDraft();
@@ -28,9 +27,10 @@
 
   function loadPlatformDraft() {
     const defaults = {
-      scope: 'system',
-      owner_skill: '',
-      consumer_skills: [],
+      visibility: {
+        scope: 'system',
+        skills: [],
+      },
       version: '1.0.0',
       status: 'published',
       lifecycle: {
@@ -42,12 +42,18 @@
       const raw = localStorage.getItem(PLATFORM_STORAGE_KEY);
       if (!raw) return defaults;
       const saved = JSON.parse(raw);
+      const savedVisibleSkills = Array.isArray(saved.visibility?.skills)
+        ? saved.visibility.skills
+        : saved.consumer_skills;
       return {
-        scope: saved.scope === 'skill' ? 'skill' : 'system',
-        owner_skill: String(saved.owner_skill || ''),
-        consumer_skills: Array.isArray(saved.consumer_skills)
-          ? [...new Set(saved.consumer_skills.map(String).map((item) => item.trim()).filter(Boolean))]
-          : [],
+        visibility: {
+          scope: saved.visibility?.scope === 'skills' || saved.scope === 'skill'
+            ? 'skills'
+            : 'system',
+          skills: Array.isArray(savedVisibleSkills)
+            ? [...new Set(savedVisibleSkills.map(String).map((item) => item.trim()).filter(Boolean))]
+            : [],
+        },
         version: String(saved.version || defaults.version),
         status: ['draft', 'published', 'disabled'].includes(saved.status)
           ? saved.status
@@ -124,10 +130,8 @@
   }
 
   function writePlatformForm() {
-    setChecked('fieldScopeSystem', platform.scope === 'system');
-    setChecked('fieldScopeSkill', platform.scope === 'skill');
-    setValue('fieldOwnerSkill', platform.owner_skill);
-    setValue('fieldConsumerSkills', platform.consumer_skills.join(', '));
+    setValue('fieldVisibilityScope', platform.visibility.scope);
+    setValue('fieldVisibleSkills', platform.visibility.skills.join(', '));
     setValue('fieldVersion', platform.version);
     setValue('fieldPublishStatus', platform.status);
     setValue('fieldMaxActiveTurns', platform.lifecycle.max_active_turns);
@@ -135,9 +139,8 @@
   }
 
   function readPlatformForm() {
-    platform.scope = $('fieldScopeSkill').checked ? 'skill' : 'system';
-    platform.owner_skill = $('fieldOwnerSkill').value.trim();
-    platform.consumer_skills = splitList($('fieldConsumerSkills').value);
+    platform.visibility.scope = $('fieldVisibilityScope').value === 'skills' ? 'skills' : 'system';
+    platform.visibility.skills = splitList($('fieldVisibleSkills').value);
     platform.version = $('fieldVersion').value.trim();
     platform.status = $('fieldPublishStatus').value;
     platform.lifecycle.max_active_turns = nullableInteger($('fieldMaxActiveTurns').value);
@@ -196,33 +199,6 @@
     profile.fork.out_of_scope_tool_instruction = $('fieldOutOfScope').value;
     profile.input_schema = parseSchemaField('fieldInputSchema');
     profile.output_schema = parseSchemaField('fieldOutputSchema');
-  }
-
-  function renderSchemas() {
-    schemaList.replaceChildren();
-    const entries = Object.entries(profile.tools.schema);
-    if (!entries.length) {
-      const empty = document.createElement('div');
-      empty.className = 'pe-empty-state';
-      empty.textContent = '暂无 Schema 覆盖。工具将沿用父级定义。';
-      schemaList.appendChild(empty);
-      return;
-    }
-    const template = $('schemaTemplate');
-    entries.forEach(([toolName, schema]) => {
-      const fragment = template.content.cloneNode(true);
-      const card = fragment.querySelector('[data-schema-card]');
-      card.dataset.originalName = toolName;
-      fragment.querySelector('[data-schema-title]').textContent = toolName || '未命名工具';
-      fragment.querySelector('[data-schema-name]').value = toolName;
-      fragment.querySelector('[data-schema-description]').value = schema?.description || '';
-      fragment.querySelector('[data-schema-parameters]').value = JSON.stringify(
-        schema?.parameters ?? {},
-        null,
-        2,
-      );
-      schemaList.appendChild(fragment);
-    });
   }
 
   const promptFileDescriptions = {
@@ -296,59 +272,31 @@
     });
   }
 
-  function syncSchemasFromDom() {
-    const schemas = {};
-    schemaList.querySelectorAll('[data-schema-card]').forEach((card, index) => {
-      const nameInput = card.querySelector('[data-schema-name]');
-      const descriptionInput = card.querySelector('[data-schema-description]');
-      const parametersInput = card.querySelector('[data-schema-parameters]');
-      const name = nameInput.value.trim() || `unnamed_tool_${index + 1}`;
-      let parameters;
-      try {
-        parameters = JSON.parse(parametersInput.value || '{}');
-        parametersInput.classList.toggle('invalid', !parameters || Array.isArray(parameters) || typeof parameters !== 'object');
-      } catch (_) {
-        parameters = parametersInput.value;
-        parametersInput.classList.add('invalid');
-      }
-      schemas[name] = { description: descriptionInput.value, parameters };
-      card.querySelector('[data-schema-title]').textContent = name;
-    });
-    profile.tools.schema = schemas;
-  }
-
   function collectForm() {
     readStaticForm();
     syncPromptFilesFromDom();
-    syncSchemasFromDom();
   }
 
   function sectionForPath(path) {
     if (/^(name|description|model)/.test(path)) return 'basic';
-    if (/^tools/.test(path)) return 'tools';
-    if (/^limits/.test(path)) return 'limits';
-    if (/^prompt/.test(path)) return 'prompt';
-    if (/^skills/.test(path)) return 'skills';
-    if (/^fork/.test(path)) return 'fork';
-    if (/^(input_schema|output_schema)/.test(path)) return 'io';
+    if (/^(tools|limits|skills)/.test(path)) return 'runtime';
+    if (/^(prompt|fork|input_schema|output_schema)/.test(path)) return 'context';
     return 'basic';
   }
 
   function validatePlatform() {
     const errors = [];
     const warnings = [];
-    if (platform.scope === 'skill' && !platform.owner_skill) {
-      errors.push({ path: 'platform.owner_skill', message: 'Skill 级 Profile 必须填写维护 Skill。' });
+    const isRestricted = platform.visibility.scope === 'skills';
+    if (isRestricted && platform.visibility.skills.length === 0) {
+      errors.push({ path: 'platform.visibility.skills', message: '限定可见范围至少需要填写一个可见 Skill。' });
     }
-    if (platform.scope === 'skill' && platform.consumer_skills.length === 0) {
-      errors.push({ path: 'platform.consumer_skills', message: 'Skill 级 Profile 至少需要关联一个可使用的 Skill。' });
-    }
-    if (platform.scope === 'skill') {
+    if (isRestricted) {
       const maxActiveTurns = platform.lifecycle.max_active_turns;
       if (maxActiveTurns !== null && (!Number.isInteger(maxActiveTurns) || maxActiveTurns < 1)) {
         errors.push({
           path: 'platform.lifecycle.max_active_turns',
-          message: 'Skill Profile 最大生效轮数必须是正整数或留空。',
+          message: '限定可见 Profile 的最大生效轮数必须是正整数或留空。',
         });
       }
     }
@@ -410,10 +358,6 @@
     });
 
     $('fieldName').classList.toggle('invalid', result.errors.some((item) => item.path === 'name'));
-    $('fieldOwnerSkill').classList.toggle(
-      'invalid',
-      result.errors.some((item) => item.path === 'platform.owner_skill'),
-    );
     $('fieldVersion').classList.toggle(
       'invalid',
       result.errors.some((item) => item.path === 'platform.version'),
@@ -429,9 +373,9 @@
         result.errors.some((item) => item.path === path),
       );
     });
-    $('fieldConsumerSkills').classList.toggle(
+    $('fieldVisibleSkills').classList.toggle(
       'invalid',
-      result.errors.some((item) => item.path === 'platform.consumer_skills'),
+      result.errors.some((item) => item.path === 'platform.visibility.skills'),
     );
     $('fieldMaxActiveTurns').classList.toggle(
       'invalid',
@@ -492,22 +436,18 @@
     $('metricPreload').textContent = String(profile.skills.preload.length);
     $('metricTurns').textContent = profile.limits.max_turns == null ? '∞' : String(profile.limits.max_turns);
 
-    const isSkill = platform.scope === 'skill';
-    const scopeLabel = isSkill ? 'Skill 级' : '系统级';
-    const scopeDescription = isSkill
-      ? '由一个 Skill 负责维护，可授权给一个或多个 Skill，并在这些 Skill 的多个 Step 中复用。'
-      : '由平台统一维护，可供多个 Skill 和多个 Step 复用；Profile 独立发布和演进。';
-    $('ownerSkillField').hidden = !isSkill;
-    $('consumerSkillsField').hidden = !isSkill;
-    $('skillLifecycleCard').hidden = !isSkill;
-    $('heroScopeBadge').textContent = scopeLabel;
-    $('heroScopeBadge').classList.toggle('system', !isSkill);
-    $('heroScopeBadge').classList.toggle('skill', isSkill);
-    $('heroScopeDescription').textContent = scopeDescription;
+    const isRestricted = platform.visibility.scope === 'skills';
+    const visibilityLabel = isRestricted ? '特定 Skills 可见' : '系统范围可见';
+    const visibilityDescription = isRestricted
+      ? '只有可见列表中的 Skills 能发现并选择此 Profile；激活生命周期可以单独配置。'
+      : '所有 Skills 都能发现并选择此 Profile；Profile 独立发布和演进。';
+    $('visibleSkillsField').hidden = !isRestricted;
+    $('visibilityLifecycleCard').hidden = !isRestricted;
+    $('heroVisibilityBadge').textContent = visibilityLabel;
+    $('heroVisibilityBadge').classList.toggle('all', !isRestricted);
+    $('heroVisibilityBadge').classList.toggle('restricted', isRestricted);
+    $('heroScopeDescription').textContent = visibilityDescription;
     $('skillSnippet').textContent = skillSnippet();
-    document.querySelectorAll('[data-profile-scope]').forEach((button) => {
-      button.classList.toggle('active', button.dataset.profileScope === platform.scope);
-    });
   }
 
   function safeFileName(name) {
@@ -550,7 +490,6 @@
     profile = core.normalizeProfile(profile);
     writeStaticForm();
     renderPromptFiles();
-    renderSchemas();
     refresh({ save: false });
   }
 
@@ -558,30 +497,6 @@
     if (event.target.matches('button')) return;
     collectForm();
     refresh();
-  }
-
-  function uniqueSchemaName() {
-    let index = 1;
-    let name = 'NewTool';
-    while (Object.prototype.hasOwnProperty.call(profile.tools.schema, name)) {
-      index += 1;
-      name = `NewTool${index}`;
-    }
-    return name;
-  }
-
-  function addSchema() {
-    collectForm();
-    const name = uniqueSchemaName();
-    profile.tools.schema[name] = {
-      description: '',
-      parameters: { type: 'object', properties: {} },
-    };
-    renderSchemas();
-    refresh();
-    const input = [...schemaList.querySelectorAll('[data-schema-name]')].pop();
-    input?.focus();
-    input?.select();
   }
 
   async function copyText(text, message = '配置已复制到剪贴板') {
@@ -631,9 +546,10 @@
     if (!window.confirm('载入 WebSearch 示例会覆盖当前草稿，是否继续？')) return;
     profile = core.createWebSearchProfile();
     platform = {
-      scope: 'system',
-      owner_skill: '',
-      consumer_skills: [],
+      visibility: {
+        scope: 'system',
+        skills: [],
+      },
       version: '1.0.0',
       status: 'published',
       lifecycle: {
@@ -663,24 +579,6 @@
 
   form.addEventListener('input', onFormChange);
   form.addEventListener('change', onFormChange);
-  document.querySelectorAll('[data-profile-scope]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const target = button.dataset.profileScope === 'skill' ? 'fieldScopeSkill' : 'fieldScopeSystem';
-      $(target).checked = true;
-      collectForm();
-      refresh();
-      $('section-basic').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  });
-  $('addSchemaButton').addEventListener('click', addSchema);
-  schemaList.addEventListener('click', (event) => {
-    const remove = event.target.closest('[data-remove-schema]');
-    if (!remove) return;
-    remove.closest('[data-schema-card]').remove();
-    syncSchemasFromDom();
-    if (!schemaList.querySelector('[data-schema-card]')) renderSchemas();
-    refresh();
-  });
   document.querySelectorAll('.pe-nav button[data-target]').forEach((button) => {
     button.addEventListener('click', () => {
       $(button.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });

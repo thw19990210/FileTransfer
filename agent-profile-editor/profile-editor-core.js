@@ -82,7 +82,6 @@
         mode: 'All',
         names: [],
         strict: false,
-        schema: {},
       },
       limits: {
         timeout_secs: 1800,
@@ -124,22 +123,6 @@
         mode: 'AllowList',
         names: ['WebSearch'],
         strict: true,
-        schema: {
-          WebSearch: {
-            description: '使用网上权威来源核实事实、补全时效或精度缺口。单次构造 1～3 条互不重复的查询。',
-            parameters: {
-              type: 'object',
-              required: ['queries'],
-              properties: {
-                queries: {
-                  type: 'array',
-                  description: '并行执行的搜索词列表，默认 1～3 条。',
-                  items: { type: 'string', description: '实体密集的关键词组合。' },
-                },
-              },
-            },
-          },
-        },
       },
       limits: {
         timeout_secs: 900,
@@ -218,6 +201,7 @@
     delete profile.prompt.context_files;
     delete profile.skills.mode;
     delete profile.skills.names;
+    delete profile.tools.schema;
     if (!hasModernSystem && legacySystemPrompt != null && String(legacySystemPrompt).trim()) {
       profile.prompt.system = {
         mode: legacyPromptMode === 'inherit' ? 'inherit' : 'custom',
@@ -252,7 +236,6 @@
         : String(profile[field]);
     });
     profile.tools.names = Array.isArray(profile.tools.names) ? profile.tools.names.map(String) : [];
-    profile.tools.schema = isPlainObject(profile.tools.schema) ? profile.tools.schema : {};
     profile.prompt.system = normalizePromptSlot(profile.prompt.system);
     profile.prompt.files = Object.fromEntries(PROMPT_FILES.map((fileName) => [
       fileName,
@@ -321,16 +304,6 @@
         error(`fork.${field}`, `${field} 必须是非负整数或留空。`);
       }
     });
-    Object.entries(profile.tools.schema).forEach(([toolName, schema]) => {
-      if (!toolName.trim()) error('tools.schema', '工具 Schema 名称不能为空。');
-      if (!String(schema?.description ?? '').trim()) {
-        error(`tools.schema.${toolName}.description`, '工具 Schema 覆盖必须提供 description。');
-      }
-      if (!isPlainObject(schema?.parameters)) {
-        error(`tools.schema.${toolName}.parameters`, 'parameters 必须是 JSON Schema 对象。');
-      }
-    });
-
     const promptSlots = [['system', profile.prompt.system]];
     PROMPT_FILES.forEach((fileName) => promptSlots.push([`files.${fileName}`, profile.prompt.files[fileName]]));
     promptSlots.forEach(([path, slot]) => {
@@ -405,12 +378,6 @@
       mode: profile.tools.mode,
       names: profile.tools.names,
       strict: profile.tools.strict,
-    });
-    Object.entries(profile.tools.schema).forEach(([toolName, schema]) => {
-      pushTable(lines, ['tools', 'schema', toolName], {
-        description: schema.description || '',
-        parameters: isPlainObject(schema.parameters) ? schema.parameters : {},
-      });
     });
     pushTable(lines, ['limits'], profile.limits);
     pushTable(lines, ['prompt'], profile.prompt);

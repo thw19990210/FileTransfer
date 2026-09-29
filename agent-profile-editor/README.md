@@ -4,29 +4,29 @@
 
 ## 核心定位
 
-> 平台提供系统级和 Skill 级 Profile 的创建、管理、发布与使用能力；Skill 具体在第几步调用 Profile，仍由 `SKILL.md` 描述。
+> 平台统一管理 Profile；每个 Profile 通过可见范围决定哪些 Skills 能够发现并选择。Skill 具体在第几步调用 Profile，仍由 `SKILL.md` 描述。
 
-Profile 定义 Subagent 稳定的运行方式，包括模型、System Prompt、工具权限、执行限制、上下文继承和 Skills 策略。一次定义后，可以在多个位置复用。
+Profile 定义 Subagent 稳定的运行方式，包括模型、运行策略和上下文与契约。运行策略统一管理工具权限、执行限制和 Skill 装载；上下文与契约统一管理 Prompt 定制、对话历史继承和输入输出 Schema。一次定义后，可以在多个位置复用。
 
-## 两种 Profile
+## 可见范围
 
-| 类型 | 所有者 | 生命周期 | 复用范围 | 典型用途 |
-| --- | --- | --- | --- | --- |
-| 系统级 Profile | 平台管理员 | 独立发布、独立版本 | 多个 Skill、多个 Step | 通用搜索、文件分析、代码执行、内容审核 |
-| Skill 级 Profile | 一个维护 Skill | 跟随维护 Skill 发布 | 授权给一个或多个 Skill，并在其多个 Step 中复用 | 一组相关 Skill 特有的模型、Prompt、工具组合 |
+所有 Profile 使用同一套配置结构，仅通过 `visibility.scope` 控制发现范围：
 
-系统级 Profile 解决通用能力复用。Skill 级 Profile 解决特殊需求快速落地；每个 Profile 保留一个唯一的维护 Skill，同时使用 `consumer_skills[]` 记录所有允许使用它的 Skills。
+| 可见范围 | 配置值 | 可发现对象 | 附加参数 |
+| --- | --- | --- | --- |
+| 系统范围可见 | `system` | 所有 Skills | 无 |
+| 特定 Skills 可见 | `skills` | `visibility.skills[]` 中的 Skills | 可见 Skills 和生命周期 |
 
-Skill 级 Profile 可以显式授权给多个 Skill，但未出现在授权列表中的 Skill 不能直接使用。某个配置需要被大量或不相关的 Skill 共同使用时，应将其提升为系统级 Profile。
+选择“特定 Skills 可见”后，页面才展开 `visibility.skills[]` 和生命周期参数。未进入可见列表的 Skill 不应在 Profile 候选列表中看到该 Profile。
 
-### Skill Profile 生命周期
+### 限定可见 Profile 生命周期
 
-Skill 级 Profile 可以设置独立的激活生命周期：
+特定 Skills 可见的 Profile 可以设置独立的激活生命周期：
 
-- `lifecycle.max_active_turns`：从所属或获授权 Skill 激活 Profile 后开始计数，限制本次最多生效多少个父会话轮次；留空表示不设置轮数上限。
+- `lifecycle.max_active_turns`：从任一可见 Skill 激活 Profile 后开始计数，限制本次最多生效多少个父会话轮次；留空表示不设置轮数上限。
 - `lifecycle.invalidate_on_other_skill_load`：加载其他 Skill 后是否立即结束当前 Profile 的生效状态。
 
-生命周期到期或因其他 Skill 加载而失效后，再次加载所属或获授权的 Skill 可以重新激活。生命周期属于平台元数据，只用于 Profile 的选择和状态管理，不写入 Subagent 运行时 TOML。
+生命周期到期或因其他 Skill 加载而失效后，再次加载可见列表中的 Skill 可以重新激活。生命周期属于平台元数据，只用于 Profile 的选择和状态管理，不写入 Subagent 运行时 TOML。
 
 ## 当前如何在 Step3 使用
 
@@ -48,8 +48,8 @@ Skill 级 Profile 可以设置独立的激活生命周期：
 
 当前界面覆盖：
 
-- 系统级与 Skill 级作用域选择
-- 维护 Skill、可使用 Skills 列表、版本和发布状态
+- 系统范围或特定 Skills 可见范围选择
+- 可见 Skills 列表、版本和发布状态
 - `SKILL.md` 调用示例生成
 - Profile 全量运行参数编辑
 - 基础 System Prompt 和五个 Markdown 槽位的独立定制
@@ -133,10 +133,6 @@ content = ""
 
 Schema 定义的是 Profile 级调用边界，不是 Step 输入输出映射。Skill 中每个 Step 如何组装输入、如何消费输出，仍由 `SKILL.md` 描述。已发布 Profile 的 Schema 发生不兼容修改时，应发布新的 Profile 版本，避免影响已有 Skill。
 
-## Hooks
-
-Hooks 当前暂不开放，Profile 页面只提供一组只读配置示意，不提供真实配置或导出。每一种 Hook 都需要先开发并注册对应的 TaiChu 运行时代码，完成运行时接入后再开放平台配置。示意中的 Hook ID 不是已注册能力。
-
 ## Skill 装载策略
 
 Skill 白名单和黑名单同时生效，不再使用互斥的过滤模式：
@@ -160,7 +156,7 @@ preload = ["contract-review"]
 
 ## 元数据与运行时配置
 
-作用域、维护 Skill、可使用 Skills 列表、版本、发布状态和 Skill Profile 生命周期属于平台元数据。右侧 TOML/JSON 只展示传给运行时的 Profile 配置，不把平台元数据混入现有 Profile Schema。系统 Profile 发生升级时，使用方应主动确认升级，避免影响多个 Skill。
+可见范围、可见 Skills 列表、版本、发布状态和限定可见生命周期属于平台元数据。右侧 TOML/JSON 只展示传给运行时的 Profile 配置，不把平台元数据混入现有 Profile Schema。Profile 发生升级时，使用方应主动确认升级，避免影响多个 Skill。
 
 ## 使用方式
 

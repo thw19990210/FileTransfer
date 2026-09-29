@@ -20,30 +20,45 @@ test('direct file entrypoint uses same-directory CSS and JavaScript assets', () 
   assert.doesNotMatch(html, /(?:href|src)="\/profile-editor/);
 });
 
-test('platform UI distinguishes system and skill profile scopes', () => {
+test('platform UI configures a unified profile visibility scope', () => {
   const html = fs.readFileSync(path.resolve(__dirname, '../profile-editor.html'), 'utf8');
   const script = fs.readFileSync(path.resolve(__dirname, '../profile-editor.js'), 'utf8');
 
-  assert.match(html, /系统级 Profile/);
-  assert.match(html, /Skill 级 Profile/);
-  assert.match(html, /fieldOwnerSkill/);
-  assert.match(html, /fieldConsumerSkills/);
-  assert.match(html, /consumer_skills\[\]/);
-  assert.match(html, /id="skillLifecycleCard"/);
+  assert.match(html, /系统范围可见/);
+  assert.match(html, /特定 Skills 可见/);
+  assert.match(html, /<select id="fieldVisibilityScope">/);
+  assert.doesNotMatch(html, /fieldVisibilitySystem|fieldVisibilitySkills|pe-scope-picker/);
+  assert.doesNotMatch(html, /fieldOwnerSkill|owner_skill|维护 Skill/);
+  assert.match(html, /fieldVisibleSkills/);
+  assert.match(html, /visibility\.skills\[\]/);
+  assert.match(html, /id="visibilityLifecycleCard"/);
   assert.match(html, /id="fieldMaxActiveTurns"/);
   assert.match(html, /id="fieldInvalidateOnOtherSkillLoad"/);
   assert.match(html, /lifecycle\.max_active_turns/);
   assert.match(html, /lifecycle\.invalidate_on_other_skill_load/);
   assert.match(html, /暂不包含 Workflow\/Step 编辑器/);
   assert.match(html, /控制单次 Subagent 运行的时间、对话轮数、输出规模和到限行为/);
+  assert.match(html, /id="section-runtime" data-section="runtime"/);
+  assert.match(html, /<h2>运行策略<\/h2>/);
+  assert.match(html, /<h3>工具权限<\/h3>/);
+  assert.match(html, /<h3>执行限制<\/h3>/);
+  assert.match(html, /<h3>Skill 装载<\/h3>/);
+  assert.doesNotMatch(html, /id="section-(?:tools|limits|skills)"/);
+  assert.match(script, /\^\(tools\|limits\|skills\).*return 'runtime'/);
   assert.match(html, /Prompt 定制/);
+  assert.match(html, /id="section-context" data-section="context"/);
+  assert.match(html, /<h2>上下文与契约<\/h2>/);
+  assert.match(html, /<h3>Prompt 定制<\/h3>/);
+  assert.match(html, /<h3>对话历史继承<\/h3>/);
+  assert.match(html, /<h3>输入输出契约<\/h3>/);
+  assert.doesNotMatch(html, /id="section-(?:prompt|fork|io)"/);
+  assert.match(script, /\^\(prompt\|fork\|input_schema\|output_schema\).*return 'context'/);
   assert.match(html, /白名单 <code>skills\.allow<\/code>/);
   assert.match(html, /黑名单 <code>skills\.deny<\/code>/);
   assert.match(html, /有效列表 = 父 Agent Skills − 黑名单 \+ 白名单/);
-  assert.match(html, /id="section-io"/);
   assert.match(html, /id="fieldInputSchema"/);
   assert.match(html, /id="fieldOutputSchema"/);
-  assert.ok(html.indexOf('id="section-io"') < html.indexOf('id="section-hooks"'));
+  assert.match(html, /id="section-context"/);
   assert.match(html, /<select id="fieldPriorTurns"/);
   assert.doesNotMatch(html, /<input id="fieldPriorTurns"/);
   assert.match(html, /id="fieldMaxPriorTurns"/);
@@ -56,12 +71,7 @@ test('platform UI distinguishes system and skill profile scopes', () => {
   assert.match(script, /'USER\.md'/);
   assert.match(script, /'MEMORY\.md'/);
   assert.doesNotMatch(html, /Thought 前缀/);
-  assert.match(html, /Hooks 当前暂不开放/);
-  assert.match(html, /开发并注册对应的 TaiChu 运行时代码/);
-  assert.match(html, /Hooks 配置示意/);
-  assert.match(html, /sample_pre_tool_hook/);
-  assert.match(html, /sample_post_tool_hook/);
-  assert.match(html, /sample_post_response_hook/);
+  assert.doesNotMatch(html, /section-hooks|Hooks|sample_(?:pre|post)_/);
   assert.doesNotMatch(html, /accumulator_key/);
   assert.doesNotMatch(html, /remaining_search_turns/);
   assert.doesNotMatch(html, /max_search_turns/);
@@ -70,17 +80,22 @@ test('platform UI distinguishes system and skill profile scopes', () => {
   assert.match(script, /subagent_profile_id: \$\{profileId\}/);
   assert.match(script, /max_active_turns/);
   assert.match(script, /invalidate_on_other_skill_load/);
+  assert.match(script, /visibility\.scope/);
+  assert.match(script, /visibility\.skills/);
+  assert.doesNotMatch(html, /系统级 Profile|Skill 级 Profile|consumer_skills/);
+  assert.doesNotMatch(html, /工具与 Schema|Schema 覆盖|addSchemaButton|schemaList|schemaTemplate/);
+  assert.doesNotMatch(script, /renderSchemas|syncSchemasFromDom|addSchema|tools\.schema/);
 });
 
 test('README records the phase-one product boundary and SKILL.md integration', () => {
   const readme = fs.readFileSync(path.resolve(__dirname, '../README.md'), 'utf8');
 
-  assert.match(readme, /系统级和 Skill 级 Profile/);
+  assert.match(readme, /每个 Profile 通过可见范围决定哪些 Skills/);
   assert.match(readme, /Skill 具体在第几步调用 Profile，仍由 `SKILL\.md` 描述/);
   assert.match(readme, /不提供 Workflow\/Step 编辑器/);
   assert.match(readme, /run_subagent/);
   assert.match(readme, /subagent_profile_id: risk-reviewer/);
-  assert.match(readme, /Skill Profile 生命周期/);
+  assert.match(readme, /限定可见 Profile 生命周期/);
   assert.doesNotMatch(readme, /稳定引用|system:\/\/profiles|skill:\/\//);
 });
 
@@ -90,7 +105,7 @@ test('websearch preset exposes every configurable profile section', () => {
   assert.equal(profile.name, 'websearch');
   assert.equal(profile.tools.mode, 'AllowList');
   assert.deepEqual(profile.tools.names, ['WebSearch']);
-  assert.equal(profile.tools.schema.WebSearch.parameters.type, 'object');
+  assert.equal(profile.tools.schema, undefined);
   assert.equal(profile.limits.max_turns, 4);
   assert.equal(profile.thought, undefined);
   assert.equal(profile.prompt.system.mode, 'custom');
@@ -163,6 +178,11 @@ test('internal and search-specific controls are removed from profiles and export
       current_turn: 'uat',
       exclude_triggering_tool: true,
     },
+    tools: {
+      schema: {
+        WebSearch: { description: 'legacy', parameters: { type: 'object' } },
+      },
+    },
   });
   const toml = profileToToml(profile);
 
@@ -172,19 +192,20 @@ test('internal and search-specific controls are removed from profiles and export
   assert.equal(profile.limits.remaining_search_turns, undefined);
   assert.equal(profile.fork.current_turn, undefined);
   assert.equal(profile.fork.exclude_triggering_tool, undefined);
+  assert.equal(profile.tools.schema, undefined);
   assert.doesNotMatch(toml, /allow_spawn_children/);
   assert.doesNotMatch(toml, /extend_deadline_on_activity/);
   assert.doesNotMatch(toml, /immediate_join_on_max_turns/);
   assert.doesNotMatch(toml, /remaining_search_turns/);
   assert.doesNotMatch(toml, /current_turn/);
   assert.doesNotMatch(toml, /exclude_triggering_tool/);
+  assert.doesNotMatch(toml, /tools\.schema/);
 });
 
 test('validation reports structural and generic limit errors', () => {
   const profile = createWebSearchProfile();
   profile.name = '';
   profile.limits.max_turns = -1;
-  profile.tools.schema.WebSearch.parameters = [];
   profile.prompt.files['AGENTS.md'] = { mode: 'custom', content: '' };
 
   const result = validateProfile(profile);
@@ -193,7 +214,6 @@ test('validation reports structural and generic limit errors', () => {
   assert.equal(result.valid, false);
   assert.match(messages, /Profile 名称/);
   assert.match(messages, /max_turns 必须是非负整数/);
-  assert.match(messages, /JSON Schema 对象/);
   assert.match(messages, /自定义时必须填写 Prompt 内容/);
 });
 
@@ -264,15 +284,17 @@ test('legacy skill filter modes migrate to simultaneous allow and deny lists', (
   assert.deepEqual(denyOnly.skills.deny, ['legacy-skill']);
 });
 
-test('TOML export includes schemas, limits and fork but omits unavailable hooks', () => {
+test('TOML export includes tool policy, limits and fork but omits unavailable sections', () => {
   const profile = createWebSearchProfile();
   profile.fork.max_prior_turns = 6;
   profile.fork.max_history_chars = 12000;
   const toml = profileToToml(profile);
 
   assert.match(toml, /^name = "websearch"/m);
-  assert.match(toml, /\[tools\.schema\.WebSearch\]/);
-  assert.match(toml, /\[tools\.schema\.WebSearch\.parameters\.properties\.queries\]/);
+  assert.match(toml, /\[tools\]/);
+  assert.match(toml, /^mode = "AllowList"$/m);
+  assert.match(toml, /^names = \["WebSearch"\]$/m);
+  assert.doesNotMatch(toml, /\[tools\.schema/);
   assert.match(toml, /max_turns = 4/);
   assert.match(toml, /\[skills\]/);
   assert.match(toml, /^allow = \[\]$/m);

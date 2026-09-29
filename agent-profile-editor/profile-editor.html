@@ -13,7 +13,7 @@
       <div class="pe-mark">T</div>
       <div>
         <div class="pe-brand">Subagent Profile Studio</div>
-        <div class="pe-kicker">系统级与 Skill 级 Profile 管理平台</div>
+        <div class="pe-kicker">Subagent Profile 统一管理平台</div>
       </div>
       <span class="pe-save-state" id="saveState"><i></i> 已自动保存</span>
     </div>
@@ -30,18 +30,13 @@
     <aside class="pe-sidebar">
       <div class="pe-scope-library">
         <div class="pe-library-heading">
-          <span>PROFILE SCOPE</span>
+          <span>PROFILE LIBRARY</span>
           <button type="button" title="创建 Profile">＋</button>
         </div>
-        <button class="pe-scope-shortcut active" type="button" data-profile-scope="system">
-          <i class="system"></i>
-          <span><strong>系统级 Profile</strong><small>跨 Skill 复用</small></span>
-          <b>12</b>
-        </button>
-        <button class="pe-scope-shortcut" type="button" data-profile-scope="skill">
-          <i class="skill"></i>
-          <span><strong>Skill 级 Profile</strong><small>随 Skill 发布</small></span>
-          <b>4</b>
+        <button class="pe-scope-shortcut active" type="button">
+          <i class="all"></i>
+          <span><strong>全部 Profile</strong><small>统一创建与管理</small></span>
+          <b>16</b>
         </button>
       </div>
 
@@ -57,13 +52,8 @@
       <nav class="pe-nav" aria-label="Profile 配置分区">
         <p class="pe-nav-label">配置</p>
         <button class="active" data-target="section-basic"><span>01</span>范围与身份<b data-section-count="basic"></b></button>
-        <button data-target="section-tools"><span>02</span>工具与 Schema<b data-section-count="tools"></b></button>
-        <button data-target="section-limits"><span>03</span>执行限制<b data-section-count="limits"></b></button>
-        <button data-target="section-prompt"><span>04</span>Prompt 定制<b data-section-count="prompt"></b></button>
-        <button data-target="section-skills"><span>05</span>Skills 策略<b data-section-count="skills"></b></button>
-        <button data-target="section-fork"><span>06</span>上下文 Fork<b data-section-count="fork"></b></button>
-        <button data-target="section-io"><span>07</span>输入与输出<b data-section-count="io"></b></button>
-        <button data-target="section-hooks"><span>08</span>Hooks<b data-section-count="hooks"></b></button>
+        <button data-target="section-runtime"><span>02</span>运行策略<b data-section-count="runtime"></b></button>
+        <button data-target="section-context"><span>03</span>上下文与契约<b data-section-count="context"></b></button>
       </nav>
 
       <div class="pe-sidebar-note">
@@ -75,7 +65,7 @@
     <main class="pe-main">
       <section class="pe-hero">
         <div>
-          <div class="pe-eyebrow"><span class="pe-scope-badge system" id="heroScopeBadge">系统级</span> PROFILE CONFIGURATION</div>
+          <div class="pe-eyebrow"><span class="pe-scope-badge all" id="heroVisibilityBadge">系统范围可见</span> PROFILE CONFIGURATION</div>
           <h1>定义一次，按需复用</h1>
           <p id="heroScopeDescription">由平台统一维护，可供多个 Skill 和多个 Step 复用；Profile 独立发布和演进。</p>
         </div>
@@ -113,31 +103,16 @@
         <section class="pe-section" id="section-basic" data-section="basic">
           <div class="pe-section-heading">
             <div><span class="pe-section-no">01</span><h2>范围与身份</h2></div>
-            <p>明确所有权、复用边界和发布版本。</p>
-          </div>
-          <div class="pe-scope-picker" role="radiogroup" aria-label="Profile 类型">
-            <label>
-              <input id="fieldScopeSystem" name="profileScope" type="radio" value="system" checked>
-              <span class="pe-scope-option">
-                <i class="system">S</i>
-                <b>系统级 Profile</b>
-                <small>平台维护，可供多个 Skill 和多个 Step 复用。</small>
-              </span>
-            </label>
-            <label>
-              <input id="fieldScopeSkill" name="profileScope" type="radio" value="skill">
-              <span class="pe-scope-option">
-                <i class="skill">K</i>
-                <b>Skill 级 Profile</b>
-                <small>一个 Skill 负责维护，可显式授权多个 Skill 使用。</small>
-              </span>
-            </label>
+            <p>明确 Profile 的可见范围和发布版本。</p>
           </div>
           <div class="pe-card pe-grid three pe-platform-fields">
-            <label class="pe-field" id="ownerSkillField" hidden>
-              <span>维护 Skill <code>owner_skill</code></span>
-              <input id="fieldOwnerSkill" type="text" autocomplete="off" placeholder="例如 contract-review">
-              <small>唯一的维护方，用于确定发布责任和管理边界。</small>
+            <label class="pe-field">
+              <span>可见范围 <code>visibility.scope</code></span>
+              <select id="fieldVisibilityScope">
+                <option value="system">系统范围可见</option>
+                <option value="skills">特定 Skills 可见</option>
+              </select>
+              <small>控制哪些 Skills 能够发现并选择该 Profile。</small>
             </label>
             <label class="pe-field">
               <span>版本 <code>version</code></span>
@@ -152,22 +127,22 @@
                 <option value="disabled">已禁用</option>
               </select>
             </label>
-            <label class="pe-field span-3" id="consumerSkillsField" hidden>
-              <span>可使用 Skills <code>consumer_skills[]</code></span>
-              <textarea id="fieldConsumerSkills" rows="2" placeholder="contract-review, compliance-check"></textarea>
-              <small>填写允许引用该 Profile 的全部 Skill，使用逗号或换行分隔；同一个 Profile 可以授权给多个 Skill。</small>
+            <label class="pe-field span-3" id="visibleSkillsField" hidden>
+              <span>可见 Skills <code>visibility.skills[]</code></span>
+              <textarea id="fieldVisibleSkills" rows="2" placeholder="contract-review, compliance-check"></textarea>
+              <small>填写能够发现并选择该 Profile 的全部 Skills，使用逗号或换行分隔。</small>
             </label>
           </div>
-          <div class="pe-card pe-skill-lifecycle" id="skillLifecycleCard" hidden>
+          <div class="pe-card pe-visibility-lifecycle" id="visibilityLifecycleCard" hidden>
             <div class="pe-card-titlebar pe-lifecycle-title">
-              <div><span class="pe-schema-glyph">⌛</span><strong>Skill Profile 生命周期</strong></div>
-              <span class="pe-scope-badge skill">SKILL ONLY</span>
+              <div><span class="pe-title-glyph">⌛</span><strong>限定可见生命周期</strong></div>
+              <span class="pe-scope-badge restricted">RESTRICTED</span>
             </div>
             <div class="pe-grid two compact">
               <label class="pe-field">
                 <span>最大生效轮数 <code>lifecycle.max_active_turns</code></span>
                 <input id="fieldMaxActiveTurns" type="number" min="1" step="1" placeholder="不限">
-                <small>从所属 Skill 激活 Profile 后开始计数；留空表示不设置轮数上限。</small>
+                <small>从任一可见 Skill 激活 Profile 后开始计数；留空表示不设置轮数上限。</small>
               </label>
               <label class="pe-switch-row pe-lifecycle-switch">
                 <span><strong>加载其他 Skill 时失效</strong><small><code>lifecycle.invalidate_on_other_skill_load</code> 开启后，其他 Skill 成功加载即结束本次生效状态。</small></span>
@@ -176,7 +151,7 @@
             </div>
             <div class="pe-capability-note pe-lifecycle-note">
               <i>PLATFORM</i>
-              <span><strong>生命周期由 Profile 平台管理</strong>再次加载所属或获授权的 Skill 时可重新激活；该配置属于平台元数据，不写入右侧运行时 TOML。</span>
+              <span><strong>生命周期由 Profile 平台管理</strong>再次加载可见列表中的 Skill 时可重新激活；该配置属于平台元数据，不写入右侧运行时 TOML。</span>
             </div>
           </div>
           <div class="pe-card pe-grid two">
@@ -211,10 +186,13 @@
           </div>
         </section>
 
-        <section class="pe-section" id="section-tools" data-section="tools">
+        <section class="pe-section" id="section-runtime" data-section="runtime">
           <div class="pe-section-heading">
-            <div><span class="pe-section-no">02</span><h2>工具与 Schema</h2></div>
-            <p>决定子 Agent 可以看到、调用哪些工具。</p>
+            <div><span class="pe-section-no">02</span><h2>运行策略</h2></div>
+            <p>统一管理 Subagent 的工具权限、执行边界和 Skill 装载。</p>
+          </div>
+          <div class="pe-subheading pe-runtime-subheading">
+            <div><h3>工具权限</h3><p>决定子 Agent 可以看到、调用哪些工具。</p></div>
           </div>
           <div class="pe-card">
             <div class="pe-grid three compact">
@@ -236,17 +214,8 @@
             </label>
           </div>
 
-          <div class="pe-subheading">
-            <div><h3>Schema 覆盖</h3><p>只改变子 Agent 看到的工具描述与参数结构。</p></div>
-            <button class="pe-button small" id="addSchemaButton" type="button">＋ 添加工具 Schema</button>
-          </div>
-          <div id="schemaList" class="pe-stack"></div>
-        </section>
-
-        <section class="pe-section" id="section-limits" data-section="limits">
-          <div class="pe-section-heading">
-            <div><span class="pe-section-no">03</span><h2>执行限制</h2></div>
-            <p>控制单次 Subagent 运行的时间、对话轮数、输出规模和到限行为。</p>
+          <div class="pe-subheading pe-runtime-subheading">
+            <div><h3>执行限制</h3><p>控制单次 Subagent 运行的时间、对话轮数、输出规模和到限行为。</p></div>
           </div>
           <div class="pe-card pe-grid three">
             <label class="pe-field">
@@ -275,41 +244,9 @@
               <small>达到轮数上限时返回给父 Agent 的提示。</small>
             </label>
           </div>
-        </section>
 
-        <section class="pe-section" id="section-prompt" data-section="prompt">
-          <div class="pe-section-heading">
-            <div><span class="pe-section-no">04</span><h2>Prompt 定制</h2></div>
-            <p>分别控制基础 System Prompt 和每个 Markdown 上下文槽位。</p>
-          </div>
-          <div class="pe-card pe-grid two pe-prompt-base">
-            <label class="pe-field span-2">
-              <span>基础 System Prompt <code>prompt.system.mode</code></span>
-              <select id="fieldSystemPromptMode">
-                <option value="inherit">沿用父 Prompt</option>
-                <option value="empty">置空</option>
-                <option value="custom">自定义</option>
-              </select>
-              <small>每个 Prompt 槽位独立选择，不再使用整体 compose/replace 模式。</small>
-            </label>
-            <label class="pe-field span-2 pe-prompt-content" id="systemPromptContentField">
-              <span>自定义 System Prompt <code>prompt.system.content</code></span>
-              <textarea id="fieldSystemPromptContent" class="pe-code-input" rows="10" spellcheck="false" placeholder="定义 Subagent 的职责、输出契约和决策规则"></textarea>
-            </label>
-          </div>
-          <div class="pe-subheading pe-prompt-subheading">
-            <div>
-              <h3>Markdown 上下文</h3>
-              <p>支持运行时的五个标准槽位；每个文件可以沿用父 Prompt、置空或提供自定义内容。</p>
-            </div>
-          </div>
-          <div id="promptFileList" class="pe-prompt-file-list"></div>
-        </section>
-
-        <section class="pe-section" id="section-skills" data-section="skills">
-          <div class="pe-section-heading">
-            <div><span class="pe-section-no">05</span><h2>Skill 装载策略</h2></div>
-            <p>分别控制 Subagent 可以发现哪些 Skill，以及启动时必须加载哪些 Skill。</p>
+          <div class="pe-subheading pe-runtime-subheading">
+            <div><h3>Skill 装载</h3><p>分别控制 Subagent 可以发现哪些 Skill，以及启动时必须加载哪些 Skill。</p></div>
           </div>
           <div class="pe-card pe-grid two">
             <label class="pe-field">
@@ -334,10 +271,39 @@
           </div>
         </section>
 
-        <section class="pe-section" id="section-fork" data-section="fork">
+        <section class="pe-section" id="section-context" data-section="context">
           <div class="pe-section-heading">
-            <div><span class="pe-section-no">06</span><h2>上下文 Fork</h2></div>
-            <p>控制父会话历史如何复制到子 Agent。</p>
+            <div><span class="pe-section-no">03</span><h2>上下文与契约</h2></div>
+            <p>统一定义 Subagent 的指令上下文、对话历史和结构化输入输出。</p>
+          </div>
+          <div class="pe-subheading pe-context-subheading">
+            <div><h3>Prompt 定制</h3><p>分别控制基础 System Prompt 和每个 Markdown 上下文槽位。</p></div>
+          </div>
+          <div class="pe-card pe-grid two pe-prompt-base">
+            <label class="pe-field span-2">
+              <span>基础 System Prompt <code>prompt.system.mode</code></span>
+              <select id="fieldSystemPromptMode">
+                <option value="inherit">沿用父 Prompt</option>
+                <option value="empty">置空</option>
+                <option value="custom">自定义</option>
+              </select>
+              <small>每个 Prompt 槽位独立选择，不再使用整体 compose/replace 模式。</small>
+            </label>
+            <label class="pe-field span-2 pe-prompt-content" id="systemPromptContentField">
+              <span>自定义 System Prompt <code>prompt.system.content</code></span>
+              <textarea id="fieldSystemPromptContent" class="pe-code-input" rows="10" spellcheck="false" placeholder="定义 Subagent 的职责、输出契约和决策规则"></textarea>
+            </label>
+          </div>
+          <div class="pe-subheading pe-prompt-subheading">
+            <div>
+              <h3>Markdown 上下文</h3>
+              <p>支持运行时的五个标准槽位；每个文件可以沿用父 Prompt、置空或提供自定义内容。</p>
+            </div>
+          </div>
+          <div id="promptFileList" class="pe-prompt-file-list"></div>
+
+          <div class="pe-subheading pe-context-subheading">
+            <div><h3>对话历史继承</h3><p>控制父会话历史如何复制到子 Agent。</p></div>
           </div>
           <div class="pe-card">
             <label class="pe-switch-row prominent">
@@ -375,12 +341,9 @@
               </div>
             </div>
           </div>
-        </section>
 
-        <section class="pe-section" id="section-io" data-section="io">
-          <div class="pe-section-heading">
-            <div><span class="pe-section-no">07</span><h2>输入与输出</h2></div>
-            <p>用 JSON Schema 固定父 Agent 与 Subagent 之间的数据契约。</p>
+          <div class="pe-subheading pe-context-subheading">
+            <div><h3>输入输出契约</h3><p>用 JSON Schema 固定父 Agent 与 Subagent 之间的数据契约。</p></div>
           </div>
           <div class="pe-contract-grid">
             <article class="pe-card pe-contract-card">
@@ -418,57 +381,6 @@
           </div>
         </section>
 
-        <section class="pe-section" id="section-hooks" data-section="hooks">
-          <div class="pe-section-heading">
-            <div><span class="pe-section-no">08</span><h2>Hooks</h2></div>
-            <p>在工具调用和模型响应的关键节点扩展运行时行为。</p>
-          </div>
-          <div class="pe-hooks-locked">
-            <div class="pe-hooks-lock-icon">⌁</div>
-            <div>
-              <span>NOT AVAILABLE</span>
-              <h3>Hooks 当前暂不开放</h3>
-              <p>Profile 平台暂不提供 Hook 配置。每一种 Hook 都需要先开发并注册对应的 TaiChu 运行时代码，完成能力接入后才能在这里开放。</p>
-            </div>
-          </div>
-          <div class="pe-hook-demo" aria-label="Hooks 配置示意">
-            <div class="pe-hook-demo-title">
-              <div><span>CONFIGURATION PREVIEW</span><h3>Hooks 配置示意</h3></div>
-              <b>只读</b>
-            </div>
-            <p class="pe-hook-demo-intro">以下字段仅展示未来可能的配置形式。示例 Hook ID 不代表 TaiChu 已注册能力，也不会写入右侧配置。</p>
-
-            <section class="pe-hook-demo-group">
-              <div class="pe-hook-demo-phase"><code>PreToolUse</code><span>工具执行之前</span></div>
-              <div class="pe-hook-demo-row">
-                <label><span>Matcher</span><input type="text" value="Write" disabled></label>
-                <label><span>匹配方式</span><select disabled><option>exact</option></select></label>
-                <label class="wide"><span>Hook ID</span><input type="text" value="sample_pre_tool_hook" disabled></label>
-                <label><span>命中后</span><select disabled><option>continue</option></select></label>
-              </div>
-            </section>
-
-            <section class="pe-hook-demo-group">
-              <div class="pe-hook-demo-phase"><code>PostToolUse</code><span>工具返回结果之后</span></div>
-              <div class="pe-hook-demo-row">
-                <label><span>Matcher</span><input type="text" value="WebSearch" disabled></label>
-                <label><span>匹配方式</span><select disabled><option>exact</option></select></label>
-                <label class="wide"><span>Hook ID</span><input type="text" value="sample_post_tool_hook" disabled></label>
-                <label><span>命中后</span><select disabled><option>continue</option></select></label>
-              </div>
-            </section>
-
-            <section class="pe-hook-demo-group">
-              <div class="pe-hook-demo-phase"><code>PostResponse</code><span>模型生成响应之后</span></div>
-              <div class="pe-hook-demo-row">
-                <label><span>Matcher</span><input type="text" value="DONE" disabled></label>
-                <label><span>匹配方式</span><select disabled><option>exact</option></select></label>
-                <label class="wide"><span>Hook ID</span><input type="text" value="sample_post_response_hook" disabled></label>
-                <label><span>命中后</span><select disabled><option>end</option></select></label>
-              </div>
-            </section>
-          </div>
-        </section>
       </form>
     </main>
 
@@ -496,29 +408,6 @@
   </div>
 
   <div class="pe-toast" id="toast" role="status"></div>
-
-  <template id="schemaTemplate">
-    <article class="pe-card pe-schema-card" data-schema-card>
-      <div class="pe-card-titlebar">
-        <div><span class="pe-schema-glyph">{ }</span><strong data-schema-title>Tool Schema</strong></div>
-        <button class="pe-icon-button danger" type="button" data-remove-schema aria-label="删除 Schema">×</button>
-      </div>
-      <div class="pe-grid two">
-        <label class="pe-field">
-          <span>工具名称</span>
-          <input type="text" data-schema-name placeholder="WebSearch">
-        </label>
-        <label class="pe-field">
-          <span>工具描述</span>
-          <textarea rows="3" data-schema-description></textarea>
-        </label>
-        <label class="pe-field span-2">
-          <span>Parameters · JSON Schema</span>
-          <textarea rows="12" class="pe-code-input" data-schema-parameters spellcheck="false"></textarea>
-        </label>
-      </div>
-    </article>
-  </template>
 
   <script src="./profile-editor-core.js"></script>
   <script src="./profile-editor.js"></script>
